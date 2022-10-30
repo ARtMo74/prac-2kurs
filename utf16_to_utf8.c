@@ -12,8 +12,9 @@ void swap_bytes(u_char *bytes)
 }
 
 
-void convert_and_write(u_char *utf16bytes, u_char *utf8bytes, FILE *output)
+void convert_and_write(u_char *utf16bytes, FILE *output)
 {
+    u_char utf8bytes[3];
     if (utf16bytes[0] == 0 && (utf16bytes[1] & 0x80) == 0)
         fputc(utf16bytes[1], output);
 
@@ -37,7 +38,7 @@ void convert_and_write(u_char *utf16bytes, u_char *utf8bytes, FILE *output)
 int main(int argc, char *const *argv)
 {
     FILE *input = NULL, *output = NULL;
-    u_char utf16bytes[2], utf8bytes[3];
+    u_char utf16bytes[2];
     int le_order, count;
 
     process_args(argc, argv, &input, &output, &le_order);
@@ -57,7 +58,7 @@ int main(int argc, char *const *argv)
     while ((count = fread(utf16bytes, sizeof(u_char), 2, input)) == 2)
     {
         if (le_order) swap_bytes(utf16bytes);
-        convert_and_write(utf16bytes, utf8bytes, output);
+        convert_and_write(utf16bytes, output);
     }
     if (count == 1)
     {

@@ -65,7 +65,7 @@ void process_args(int argc, char *const *argv,
                 "big-endian and little-endian.\n");
         exit(1);
     }
-    else *le_order = le_flag;
+    else *le_order = !be_flag;
 
     if(!filename_r) *input = stdin;
     else
