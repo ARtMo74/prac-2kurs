@@ -11,7 +11,7 @@ https://www.gnu.org/software/libc/manual/html_node/Getopt.html
 
 void process_args(int argc, char *const *argv, FILE **input, FILE **output)
 {
-    int i, c, option_index, needed_help = 0;
+    int i, c, option_index;
     char *filename_r = NULL, *filename_w = NULL;
     struct option long_options[] = {
         {"input", required_argument, 0, 'i'},
@@ -39,14 +39,11 @@ void process_args(int argc, char *const *argv, FILE **input, FILE **output)
                     " -i,  --input           | specify input file\n"
                     " -o,  --output          | specify output file"
                 );
-                needed_help = 1;
-                break;
+                exit(0);
             case '?':
                 break;
         }
     }
-
-    if (needed_help) exit(0);
 
     if(!filename_r) *input = stdin;
     else
