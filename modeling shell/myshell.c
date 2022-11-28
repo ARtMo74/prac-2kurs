@@ -25,6 +25,14 @@ typedef struct pid_list_elem
 } pid_list_elem, *pid_list;
 
 
+typedef struct process_list_elem
+{
+    struct process_list_elem *next;
+    pid_list pid_lst;
+    words_array words;
+} process_list_elem, *process_list;
+
+
 Pipeline make_pipeline(words_array words)
 {
     Pipeline pipeline = NULL, *tmp = &pipeline;
@@ -41,21 +49,15 @@ Pipeline make_pipeline(words_array words)
             {
                 int out = open(words[i + 1], O_CREAT|O_WRONLY|O_TRUNC, 0666);
                 (*tmp)->fd[1] = out;
-                free(words[i]); free(words[i + 1]);
                 i += 2;
             }
             else if (strcmp(words[i], "<") == 0)
             {
                 int in = open(words[i + 1], O_RDONLY, 0666);
                 (*tmp)->fd[0] = in;
-                free(words[i]); free(words[i + 1]);
                 i += 2;
             }
-            else if (strcmp(words[i], "&") == 0)
-            {
-                free(words[i]);
-                i++;
-            }
+            else if (strcmp(words[i], "&") == 0) i++;
             else
             {
                 n++;
@@ -70,13 +72,19 @@ Pipeline make_pipeline(words_array words)
         tmp = &((*tmp)->next);
 
         if (words[i] == NULL) break;
-        free(words[i]);
         i++;
     }
-    free(words);
     return pipeline;
 }
 
+
+void free_words(words_array words)
+{
+    int i;
+    for (i = 0; words[i] != NULL; i++)
+        free(words[i]);
+    free(words);
+}
 
 void free_pipeline(Pipeline pipeline)
 {
@@ -84,9 +92,6 @@ void free_pipeline(Pipeline pipeline)
     {
         Pipeline tmp = pipeline;
         pipeline = pipeline->next;
-        int i;
-        for (i = 0; tmp->words[i] != NULL; i++)
-            free(tmp->words[i]);
         free(tmp->words);
         free(tmp);
     }
@@ -133,7 +138,7 @@ int main(int argc, const str *argv)
 {
     FILE *input;
     str line;
-    pid_list bckg = NULL, done = NULL;
+    process_list bckg = NULL, done = NULL;
     get_options(argc, argv, &input);
 
     while ((line = get_line(input)) != NULL)
@@ -145,10 +150,7 @@ int main(int argc, const str *argv)
         if (background_flag == -1)
         {
             fputs("'&' is not at the end of the line\n", stderr);
-            int i;
-            for (i = 0; words[i] != NULL; i++)
-                free(words[i]);
-            free(words);
+            free_words(words);
             continue;
         }
 
@@ -158,6 +160,7 @@ int main(int argc, const str *argv)
             if (strcmp(pipeline->words[0], "exit") == 0)
             {
                 free_pipeline(pipeline);
+                free_words(words);
                 break;
             }
             else if (strcmp(pipeline->words[0], "cd") == 0)
@@ -166,6 +169,7 @@ int main(int argc, const str *argv)
                 if (pipeline->words[1] == NULL) path = getenv("HOME");
                 else path = pipeline->words[1];
                 if (chdir(path) == -1) perror("chdir failed");
+                free_words(words);
             }
             else
             {
@@ -180,6 +184,7 @@ int main(int argc, const str *argv)
                     {
                         perror("fork");
                         free_pipeline(pipeline);
+                        free(words);
                         return 1;
                     }
                     else if (pid == 0)
@@ -199,6 +204,7 @@ int main(int argc, const str *argv)
                         execvp(tmp->words[0], tmp->words);
                         perror("execvp");
                         free_pipeline(pipeline);
+                        free_words(words);
                         return 2;
                     }
                     dup2(fd[0], 0);
@@ -208,11 +214,17 @@ int main(int argc, const str *argv)
                 }
                 if (background_flag)
                 {
+                    process_list tmp;
+                    tmp = (process_list)malloc(sizeof(process_list_elem));
+                    tmp->next = bckg;
+                    tmp->pid_lst = NULL;
+                    tmp->words = words;
                     while (cur_pids != NULL)
                     {
-                        push_pid(&bckg, cur_pids->pid);
+                        push_pid(&(tmp->pid_lst), cur_pids->pid);
                         pop_pid(&cur_pids, cur_pids->pid);
                     }
+                    bckg = tmp;
                 }
                 else
                 {
@@ -221,24 +233,51 @@ int main(int argc, const str *argv)
                         pid = wait(NULL);
                         if (!pop_pid(&cur_pids, pid))
                         {
-                            pop_pid(&bckg, pid);
-                            push_pid(&done, pid);
+                            process_list *tmp = &bckg;
+                            while (!pop_pid(&(*tmp)->pid_lst, pid))
+                                tmp = &(*tmp)->next;
+                            if ((*tmp)->pid_lst == NULL)
+                            {
+                                process_list tmp2 = *tmp;
+                                *tmp = (*tmp)->next;
+                                tmp2->next = done;
+                                done = tmp2;
+                            }
                         }
                     }
+                    free_words(words);
                 }
                 dup2(fd_in_backup, 0);
                 close(fd_in_backup);
             }
         }
+        else free(words);
         while ((pid = waitpid(-1, NULL, WNOHANG)) != 0 && pid != -1)
         {
-            pop_pid(&bckg, pid);
-            push_pid(&done, pid);
+            process_list *tmp = &bckg;
+            while (!pop_pid(&(*tmp)->pid_lst, pid))
+                tmp = &(*tmp)->next;
+            if ((*tmp)->pid_lst == NULL)
+            {
+                process_list tmp2 = *tmp;
+                *tmp = (*tmp)->next;
+                tmp2->next = done;
+                done = tmp2;
+            }
         }
         while (done != NULL)
         {
-            printf("done: pid = %d\n", done->pid);
-            pop_pid(&done, done->pid);
+            process_list tmp = done; int i;
+            printf("done: ");
+            for (i = 0; tmp->words[i] != NULL; i++)
+                printf(
+                    "%s%s",
+                    strcmp(tmp->words[i], "&") != 0 ? tmp->words[i]: "",
+                    tmp->words[i + 1] == NULL ? "\n": " "
+                );
+            done = done->next;
+            free_words(tmp->words);
+            free(tmp);
         }
         free_pipeline(pipeline);
     }
