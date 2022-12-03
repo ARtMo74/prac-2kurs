@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include "parser.h"
 
 
-typedef char **words_array, *str;
 enum sep_type{
     not_separator = 0,
     ordinary_separator = 1,

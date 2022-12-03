@@ -7,6 +7,7 @@ https://www.gnu.org/software/libc/manual/html_node/Getopt.html
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include "cli.h"
 
 
 void get_options(int argc, char *const *argv, FILE **input)

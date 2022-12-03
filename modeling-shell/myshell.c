@@ -2,12 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include "cli.c"
-#include "parser.c"
+// #include "cli.c"
+// #include "parser.c"
 
 
 typedef struct Pipe_elem
@@ -31,6 +32,13 @@ typedef struct process_list_elem
     pid_list pid_lst;
     words_array words;
 } process_list_elem, *process_list;
+
+
+void sigint_handler(int sig)
+{
+    printf("\n");
+}
+
 
 
 Pipeline make_pipeline(words_array words)
@@ -140,6 +148,7 @@ int main(int argc, const str *argv)
     str line;
     process_list bckg = NULL, done = NULL;
     get_options(argc, argv, &input);
+    signal(SIGINT, sigint_handler);
 
     while ((line = get_line(input)) != NULL)
     {
@@ -201,6 +210,7 @@ int main(int argc, const str *argv)
                             dup2(tmp->fd[1], 1);
                             close(tmp->fd[1]);
                         }
+                        signal(SIGINT, SIG_DFL);
                         execvp(tmp->words[0], tmp->words);
                         perror("execvp");
                         free_pipeline(pipeline);
