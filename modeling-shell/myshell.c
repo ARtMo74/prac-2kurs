@@ -4,291 +4,217 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-// #include "cli.c"
-// #include "parser.c"
+#include "modules/parser.h"
+#include "modules/cli.h"
+#include "modules/bckg_processes.h"
 
 
-typedef struct Pipe_elem
+static bckg_proc_list running = NULL, finished = NULL;
+
+
+void invite()
 {
-    words_array words;
-    struct Pipe_elem *next;
-    int fd[2];
-} Pipe_elem, *Pipeline;
-
-
-typedef struct pid_list_elem
-{
-    struct pid_list_elem *next;
-    int pid;
-} pid_list_elem, *pid_list;
-
-
-typedef struct process_list_elem
-{
-    struct process_list_elem *next;
-    pid_list pid_lst;
-    words_array words;
-} process_list_elem, *process_list;
-
-
-void sigint_handler(int sig)
-{
-    printf("\n");
+    char *username = getenv("USER");
+    char *home = getenv("HOME");
+    char *cwd = getcwd(NULL, 0);
+    char *path = cwd;
+    if (strncmp(cwd, home, strlen(home)) == 0) path += strlen(home);
+    char hostname[65];
+    gethostname(hostname, sizeof(hostname));
+    printf("%s@%s:", username, hostname);
+    if (path == cwd) printf("%s$ ", cwd);
+    else printf("~%s$ ", path);
+    fflush(stdout);
+    free(cwd);
 }
 
 
-
-Pipeline make_pipeline(words_array words)
+void handler1(int sig)
 {
-    Pipeline pipeline = NULL, *tmp = &pipeline;
-    int i = 0;
-    for(;;)
+    puts("");
+    invite();
+    fflush(stdout);
+}
+
+
+void handler2(int sig)
+{
+    puts("");
+}
+
+
+int logic_check(int status, enum logic_operator opr)
+{
+    return (status == 0 && opr == and_opr) || (status != 0 && opr == or_opr);
+}
+
+
+int run_pipeline(Pipeline pl, int in_bckg)
+{
+    pid_list cur_pids = NULL;
+    int fd0_backup = dup(0), fd[2], exit_status, pid;
+    while (pl != NULL)
     {
-        int n = 0;
-        words_array wa = (words_array)malloc(sizeof(str));
-        *tmp = (Pipeline)malloc(sizeof(Pipe_elem));
-        (*tmp)->fd[0] = (*tmp)->fd[1] = -1;
-        while (words[i] != NULL && strcmp(words[i], "|") != 0)
+        pipe(fd);
+        pid = fork();
+        if (pid == 0) {
+            if (pl->next != NULL) dup2(fd[1], 1);
+            close(fd[0]);
+            close(fd[1]);
+            if (pl->cmd.fd[0] != -1) {
+                dup2(pl->cmd.fd[0], 0);
+                close(pl->cmd.fd[0]);
+            }
+            if (pl->cmd.fd[1] != -1) {
+                dup2(pl->cmd.fd[1], 1);
+                close(pl->cmd.fd[1]);
+            }
+            if (!in_bckg) signal(SIGINT, SIG_DFL);
+            execvp(pl->cmd.argv[0], pl->cmd.argv);
+            perror("execvp");
+            exit(2);
+        }
+        dup2(fd[0], 0);
+        close(fd[0]);
+        close(fd[1]);
+        push_pid(&cur_pids, pid);
+        pl = pl->next;
+    }
+    dup2(fd0_backup, 0);
+    close(fd0_backup);
+
+    while (cur_pids != NULL)
+    {
+        int status, done;
+        done = wait(&status);
+        if (!pop_pid(&cur_pids, done))
         {
-            if (strcmp(words[i], ">") == 0)
-            {
-                int out = open(words[i + 1], O_CREAT|O_WRONLY|O_TRUNC, 0666);
-                (*tmp)->fd[1] = out;
-                i += 2;
-            }
-            else if (strcmp(words[i], "<") == 0)
-            {
-                int in = open(words[i + 1], O_RDONLY, 0666);
-                (*tmp)->fd[0] = in;
-                i += 2;
-            }
-            else if (strcmp(words[i], "&") == 0) i++;
+            process proc = pop_proc(&running, done);
+            proc.status = status;
+            push_proc(&finished, proc);
+        }
+        else if (done == pid) exit_status = status;
+    }
+    return exit_status;
+}
+
+
+int run_ao_list(And_or_list ao_list, int in_bckg)
+{
+    int exit_status;
+    signal(SIGINT, handler2);
+    while (ao_list != NULL)
+    {
+        exit_status = run_pipeline(ao_list->pl, in_bckg);
+        if (logic_check(exit_status, ao_list->opr))
+            ao_list = ao_list->next;
+        else break;
+    }
+    signal(SIGINT, handler1);
+    return exit_status;
+}
+
+
+void print_ao_list(And_or_list ao_list)
+{
+    while (1)
+    {
+        Pipeline pl = ao_list->pl;
+        while (1)
+        {
+            int i; Simple_command cmd = pl->cmd;
+            for (i = 0; cmd.argv[i] != NULL; i++)
+                printf("%s%s", cmd.argv[i], cmd.argv[i + 1] != NULL ? " " : "");
+            pl = pl->next;
+            if (pl == NULL) break;
+            printf(" | ");
+        }
+        if (ao_list->next == NULL) { puts(""); break; }
+        printf(" %s ", ao_list->opr == and_opr ? "&&" : "||");
+        ao_list = ao_list->next;
+    }
+}
+
+
+void check_finished()
+{
+    int status, pid;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        process proc = pop_proc(&running, pid);
+        proc.status = status;
+        push_proc(&finished, proc);
+    }
+    while (finished != NULL)
+    {
+        process proc = pop_proc(&finished, finished->proc.pid);
+        if (WIFEXITED(proc.status))
+        {
+            if (WEXITSTATUS(proc.status) == 0)
+                printf("%-30s", "Done");
             else
-            {
-                n++;
-                wa = (words_array)realloc(wa, (n + 1) * sizeof(str));
-                wa[n - 1] = words[i];
-                i++;
-            }
+                printf("Exit %-25d", WEXITSTATUS(proc.status));
         }
-        wa[n] = NULL;
-        (*tmp)->words = wa;
-        (*tmp)->next = NULL;
-        tmp = &((*tmp)->next);
-
-        if (words[i] == NULL) break;
-        i++;
+        else printf("%-30s", "Killed");
+        print_ao_list(proc.ao_list);
     }
-    return pipeline;
-}
-
-
-void free_words(words_array words)
-{
-    int i;
-    for (i = 0; words[i] != NULL; i++)
-        free(words[i]);
-    free(words);
-}
-
-void free_pipeline(Pipeline pipeline)
-{
-    while (pipeline != NULL)
-    {
-        Pipeline tmp = pipeline;
-        pipeline = pipeline->next;
-        free(tmp->words);
-        free(tmp);
-    }
-}
-
-
-void push_pid(pid_list *pl, int pid)
-{
-    pid_list tmp = (pid_list)malloc(sizeof(pid_list_elem));
-    tmp->next = *pl;
-    tmp->pid = pid;
-    *pl = tmp;
-}
-
-
-int pop_pid(pid_list *pl, int pid)
-{
-    pid_list *tmp = pl;
-    while (*tmp != NULL)
-    {
-        if ((*tmp)->pid == pid)
-        {
-            pid_list tmp2 = *tmp;
-            *tmp = (*tmp)->next;
-            free(tmp2);
-            return 1;
-        }
-        else tmp = &((*tmp)->next);
-    }
-    return 0;
-}
-
-
-int set_background_flag(words_array words)
-{
-    int i;
-    for (i = 0; words[i] != NULL && strcmp(words[i], "&") != 0; i++);
-    if (words[i] == NULL) return 0;
-    else return words[i + 1] == NULL ? 1: -1;
 }
 
 
 int main(int argc, const str *argv)
 {
-    FILE *input;
-    str line;
-    process_list bckg = NULL, done = NULL;
-    get_options(argc, argv, &input);
-    signal(SIGINT, sigint_handler);
+    List command;
+    get_options(argc, argv);
+    signal(SIGINT, handler1);
+    invite();
 
-    while ((line = get_line(input)) != NULL)
+    while ((command = make_command()) != NULL)
     {
-        int background_flag, pid;
-        words_array words = parse_line(line);
-        free(line);
-        background_flag = set_background_flag(words);
-        if (background_flag == -1)
+        words_array cmd_argv = command->ao_list->pl->cmd.argv;
+        if (cmd_argv[0] != NULL)
         {
-            fputs("'&' is not at the end of the line\n", stderr);
-            free_words(words);
-            continue;
-        }
-
-        Pipeline pipeline = make_pipeline(words);
-        if (pipeline->words[0] != NULL)
-        {
-            if (strcmp(pipeline->words[0], "exit") == 0)
+            if (strcmp(cmd_argv[0], "exit") == 0)
             {
-                free_pipeline(pipeline);
-                free_words(words);
+                // free all
                 break;
             }
-            else if (strcmp(pipeline->words[0], "cd") == 0)
+            else if (strcmp(cmd_argv[0], "cd") == 0)
             {
                 str path;
-                if (pipeline->words[1] == NULL) path = getenv("HOME");
-                else path = pipeline->words[1];
+                if (cmd_argv[1] == NULL) path = getenv("HOME");
+                else path = cmd_argv[1];
                 if (chdir(path) == -1) perror("chdir failed");
-                free_words(words);
+                // add free(cmd)
             }
             else
             {
-                Pipeline tmp = pipeline;
-                pid_list cur_pids = NULL;
-                int fd_in_backup = dup(0), fd[2];
+                List tmp = command;
                 while (tmp != NULL)
                 {
-                    pipe(fd);
-                    pid = fork();
-                    if (pid == -1)
+                    if (tmp->is_in_bckg)
                     {
-                        perror("fork");
-                        free_pipeline(pipeline);
-                        free(words);
-                        return 1;
-                    }
-                    else if (pid == 0)
-                    {
-                        if (tmp->next != NULL) dup2(fd[1], 1);
-                        close(fd[0]); close(fd[1]);
-                        if (tmp->fd[0] != -1)
+                        int pid = fork();
+                        if (pid == 0)
                         {
-                            dup2(tmp->fd[0], 0);
-                            close(tmp->fd[0]);
+                            int exit_status = run_ao_list(tmp->ao_list, 1);
+                            exit(exit_status);
                         }
-                        if (tmp->fd[1] != -1)
+                        else
                         {
-                            dup2(tmp->fd[1], 1);
-                            close(tmp->fd[1]);
+                            printf("[%d]\n", pid);
+                            process proc;
+                            proc.pid = pid;
+                            proc.ao_list = tmp->ao_list;
+                            push_proc(&running, proc);
                         }
-                        signal(SIGINT, SIG_DFL);
-                        execvp(tmp->words[0], tmp->words);
-                        perror("execvp");
-                        free_pipeline(pipeline);
-                        free_words(words);
-                        return 2;
                     }
-                    dup2(fd[0], 0);
-                    close(fd[0]); close(fd[1]);
-                    push_pid(&cur_pids, pid);
+                    else run_ao_list(tmp->ao_list, 0);
+                    check_finished();
                     tmp = tmp->next;
                 }
-                if (background_flag)
-                {
-                    process_list tmp;
-                    tmp = (process_list)malloc(sizeof(process_list_elem));
-                    tmp->next = bckg;
-                    tmp->pid_lst = NULL;
-                    tmp->words = words;
-                    while (cur_pids != NULL)
-                    {
-                        push_pid(&(tmp->pid_lst), cur_pids->pid);
-                        pop_pid(&cur_pids, cur_pids->pid);
-                    }
-                    bckg = tmp;
-                }
-                else
-                {
-                    while (cur_pids != NULL)
-                    {
-                        pid = wait(NULL);
-                        if (!pop_pid(&cur_pids, pid))
-                        {
-                            process_list *tmp = &bckg;
-                            while (!pop_pid(&(*tmp)->pid_lst, pid))
-                                tmp = &(*tmp)->next;
-                            if ((*tmp)->pid_lst == NULL)
-                            {
-                                process_list tmp2 = *tmp;
-                                *tmp = (*tmp)->next;
-                                tmp2->next = done;
-                                done = tmp2;
-                            }
-                        }
-                    }
-                    free_words(words);
-                }
-                dup2(fd_in_backup, 0);
-                close(fd_in_backup);
             }
         }
-        else free(words);
-        while ((pid = waitpid(-1, NULL, WNOHANG)) != 0 && pid != -1)
-        {
-            process_list *tmp = &bckg;
-            while (!pop_pid(&(*tmp)->pid_lst, pid))
-                tmp = &(*tmp)->next;
-            if ((*tmp)->pid_lst == NULL)
-            {
-                process_list tmp2 = *tmp;
-                *tmp = (*tmp)->next;
-                tmp2->next = done;
-                done = tmp2;
-            }
-        }
-        while (done != NULL)
-        {
-            process_list tmp = done; int i;
-            printf("done: ");
-            for (i = 0; tmp->words[i] != NULL; i++)
-                printf(
-                    "%s%s",
-                    strcmp(tmp->words[i], "&") != 0 ? tmp->words[i]: "",
-                    tmp->words[i + 1] == NULL ? "\n": " "
-                );
-            done = done->next;
-            free_words(tmp->words);
-            free(tmp);
-        }
-        free_pipeline(pipeline);
+        check_finished();
+        invite();
     }
 }

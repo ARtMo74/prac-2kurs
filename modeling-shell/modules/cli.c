@@ -3,14 +3,15 @@ getopt reference:
 https://www.gnu.org/software/libc/manual/html_node/Getopt.html
 */
 
-
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
 #include "cli.h"
+#include <fcntl.h>
+#include <unistd.h>
 
 
-void get_options(int argc, char *const *argv, FILE **input)
+void get_options(int argc, char *const *argv)
 {
     int i, c, option_index;
     char *filename_r = NULL;
@@ -41,15 +42,16 @@ void get_options(int argc, char *const *argv, FILE **input)
         }
     }
 
-    if(!filename_r) *input = stdin;
-    else
+    if (filename_r != NULL)
     {
-        *input = fopen(filename_r, "r");
-        if (!*input)
+        int fd = open(filename_r, O_RDONLY, 0666);
+        if (fd == -1)
         {
             perror(filename_r);
             exit(1);
         }
+        dup2(fd, 0);
+        close(fd);
     }
 
     for (i = optind; i < argc; i++)
