@@ -1,1 +1,20 @@
 program
+int real string boolean
+true false
+if else
+do while for
+read write
+goto break continue
+and or not
+/* keywords ended */
+
++ - * /
+=
+< > == <= >= !=
+, . : ;
+() {}
+/* separators over */
+
+        12345
+"abcdef"
+xyz
