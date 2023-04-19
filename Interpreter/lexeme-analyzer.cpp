@@ -39,6 +39,23 @@ struct Lexeme
     int data;
     explicit Lexeme(LexemeType t=lex_null, int d=0) : type(t), data(d) {}
 };
+const char* Lexeme::keywords[] = {
+        "program",
+        "int", "real", "string", "boolean",
+        "true", "false",
+        "if", "else",
+        "do", "while", "for",
+        "read", "write",
+        "goto",
+        "and", "or", "not", nullptr
+};
+const char* Lexeme::separators[] = {
+        "+", "-", "*", "/",
+        "=",
+        "<", ">", "==", "<=", ">=", "!=",
+        ",", ".", ":", ";",
+        "(", ")", "{", "}", nullptr
+};
 
 std::ostream& operator<<(std::ostream& stream, Lexeme lex)
 {
@@ -55,24 +72,6 @@ std::ostream& operator<<(std::ostream& stream, Lexeme lex)
         stream << idents[lex.data];
     return stream;
 }
-
-const char* keywords[] = {
-        "program",
-        "int", "real", "string", "boolean",
-        "true", "false",
-        "if", "else",
-        "do", "while", "for",
-        "read", "write",
-        "goto",
-        "and", "or", "not", nullptr
-};
-const char* separators[] = {
-        "+", "-", "*", "/",
-        "=",
-        "<", ">", "==", "<=", ">=", "!=",
-        ",", ".", ":", ";",
-        "(", ")", "{", "}", nullptr
-};
 
 class LexemeAnalyzer
 {
@@ -116,7 +115,7 @@ public:
                     if (in.eof() || !isalnum(c))
                     {
                         if (!in.eof()) in.unget();
-                        int i = find(buf, keywords);
+                        int i = find(buf, Lexeme::keywords);
                         if (i == -1)
                         {
                             idents.push_back(buf);
@@ -155,7 +154,7 @@ public:
                         if(in.peek() == '=') { in.get(); sep += '='; }
                         else if (c == '!') throw "Unexpected separator: \"!\"";
                     }
-                    int i = find(sep, separators);
+                    int i = find(sep, Lexeme::separators);
                     return Lexeme((LexemeType)(i + 14), i);
             }
         }while(true);
