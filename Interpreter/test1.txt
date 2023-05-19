@@ -1,21 +1,17 @@
 program
 {
-    int a = 51, b = 6, c;
-    string x = "abc", y, z = "abcd";
-    c = (a + b) * 2;
-    if (c >= 100 or x == z)
-    {
-        read (y);
-        write (y);
-        write (x + y + z, c);
-    }
+    int a = 10, b, c = 42;
+    string s = "Hello, World!";
+    boolean t = true, f = false, l;
+    real x, y, z;
+
+    write(a + b < 10 and (t or f or l));
+    a = b = (c = 6 + 5) * 10 - 23;
+    if(l);
     else
-        c = a = 21;
-    while (c > 100)
     {
-        c = c - 5;
-        write (c);
-        x = x + "step";
+        do {} while (a < b and (not t or f));
     }
-    write (x);
+    if (a < b) read(c);
+    else write(s + "abc", a + b < 100);
 }
