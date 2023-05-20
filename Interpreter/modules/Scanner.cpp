@@ -1,11 +1,12 @@
 #include <vector>
 #include <cctype>
-#include "LexemeAnalyzer.h"
+#include "Scanner.h"
 #include "Identifier.h"
+#include "Error.h"
 
 extern std::vector<std::string> str_literals;
 
-int LexemeAnalyzer::find(const std::string &s, const char** str_array)
+int Scanner::find(const std::string &s, const char** str_array)
 {
     int i = 0;
     while (str_array[i] != nullptr && std::string(str_array[i]) != s)
@@ -16,16 +17,16 @@ int LexemeAnalyzer::find(const std::string &s, const char** str_array)
         return i;
 }
 
-bool LexemeAnalyzer::is_separator(char c)
+bool Scanner::is_separator(char c)
 {
     return c == '+' || c == '-' || c == '*' || c == '/' ||
            c == '=' || c == '<' || c == '>' || c == '!' ||
-           c == ',' || c == '.' || c == ':' || c == ';' ||
+           c == ',' || c == ':' || c == ';' ||
            c == '(' || c == ')' || c == '{' || c == '}';
 }
-
-LexemeAnalyzer::LexemeAnalyzer(const char *filename) : in(filename), cur_line(1) {}
-Lexeme LexemeAnalyzer::get()
+int Scanner::line() const { return cur_line; }
+Scanner::Scanner(const char *filename) : in(filename), cur_line(1) {}
+Lexeme Scanner::get()
 {
     enum State {H, Ident, Number, Comment, StrLiteral, Separator} state = H;
     char c;
@@ -37,7 +38,7 @@ Lexeme LexemeAnalyzer::get()
         switch(state)
         {
             case H:
-                if (in.eof()) return {lex_null, 0};
+                if (in.eof()) return Lexeme();
                 else if (isspace(c)) { if (c == '\n') ++cur_line; }
                 else if (isalpha(c)) { buf += c; state = Ident; }
                 else if (isdigit(c)) { number = c - '0'; state = Number; }
@@ -48,19 +49,15 @@ Lexeme LexemeAnalyzer::get()
                     else { in.unget(); state = Separator; }
                 }
                 else if (is_separator(c)) { in.unget(); state = Separator; }
-                else throw "Unexpected symbol";
+                else throw Error(std::string("Unexpected symbol: ") + c, cur_line);
                 break;
             case Ident:
                 if (in.eof() || !isalnum(c))
                 {
                     if (!in.eof()) in.unget();
                     int i = find(buf, Lexeme::keywords);
-                    if (i == -1)
-                    {
-
-                        return {lex_ident, put(buf)};
-                    }
-                    else return {(LexemeType)i, i};
+                    if (i == -1) return Lexeme(lex_ident, put(buf));
+                    else return Lexeme((LexemeType) i, i);
                 }
                 else buf += c;
                 break;
@@ -68,32 +65,41 @@ Lexeme LexemeAnalyzer::get()
                 if (in.eof() || !isdigit(c))
                 {
                     if (!in.eof()) in.unget();
-                    return {lex_integer_number, number};
+                    return Lexeme(lex_number, number);
                 }
                 else number = number * 10 + (c - '0');
                 break;
             case Comment:
-                if(in.eof()) throw "Never ending comment!!!";
+                if(in.eof())
+                    throw Error("Unterminated /* comment.", cur_line);
+                else if (c == '\n') ++cur_line;
                 else if(c == '*' && in.peek() == '/') { in.get(); state = H; }
                 break;
+
             case StrLiteral:
-                if(in.eof()) throw "Never ending string literal!!!";
+                if(in.eof() || c == '\n')
+                    throw Error("Never ending string literal", cur_line);
                 else if(c != '"') buf += c;
                 else
                 {
                     str_literals.push_back(buf);
-                    return {lex_string_literal, (int)str_literals.size() - 1};
+                    return Lexeme(lex_string_literal, (int)str_literals.size() - 1);
                 }
                 break;
             case Separator:
                 buf += c;
                 if(c == '=' || c == '<' || c == '>' || c == '!')
                 {
-                    if(in.peek() == '=') { in.get(); buf += '='; }
-                    else if (c == '!') throw "Unexpected separator: \"!\"";
+                    if(in.peek() == '=')
+                    {
+                        in.get();
+                        buf += '=';
+                    }
+                    else if (c == '!')
+                        throw Error("! is not defined operation, use 'not' instead", cur_line);
                 }
                 int i = find(buf, Lexeme::separators);
-                return {(LexemeType)(i + 20), i}; // TODO fix 20 to var
+                return Lexeme((LexemeType)(i + 19), i); // TODO fix 20 to var
         }
     }
 }

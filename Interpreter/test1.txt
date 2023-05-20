@@ -1,17 +1,7 @@
 program
 {
-    int a = 10, b, c = 42;
+    int a = 10, b, c = +42;
     string s = "Hello, World!";
     boolean t = true, f = false, l;
-    real x, y, z;
-
-    write(a + b < 10 and (t or f or l));
-    a = b = (c = 6 + 5) * 10 - 23;
-    if(l);
-    else
-    {
-        do {} while (a < b and (not t or f));
-    }
-    if (a < b) read(c);
-    else write(s + "abc", a + b < 100);
+    for (a = 0; a < 10; a = a + 1);
 }

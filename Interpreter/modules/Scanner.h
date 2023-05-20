@@ -5,15 +5,16 @@
 #include <fstream>
 #include "Lexeme.h"
 
-class LexemeAnalyzer
+class Scanner
 {
     std::ifstream in;
     int cur_line;
     static int find(const std::string &s, const char** str_array);
     static bool is_separator(char c);
 public:
-    explicit LexemeAnalyzer(const char *filename);
+    explicit Scanner(const char *filename);
     Lexeme get();
+    int line() const;
 };
 
 

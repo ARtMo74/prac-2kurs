@@ -1,8 +1,0 @@
-#ifndef INTERPRETER_ERRORS_H
-#define INTERPRETER_ERRORS_H
-
-
-
-
-
-#endif
